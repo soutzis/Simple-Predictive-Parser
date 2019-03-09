@@ -1,10 +1,9 @@
 /**
  * @author Petros Soutzis
  */
-@SuppressWarnings("Duplicates")
 public class Generate extends AbstractGenerate {
 
-    private int indentationLevel;
+    private int indentationLevel; // This variable indicates the current indentation level
 
     Generate(){
 
@@ -12,33 +11,61 @@ public class Generate extends AbstractGenerate {
     }
 
 
+    /**
+     * Indicates that a non-terminal method has been entered.
+     * Will print tabs, equal to the level of indentation
+     * @param name The name of the non-terminal
+     */
     @Override
     public void commenceNonterminal( String name ) {
-        addIndentation(indentationLevel);
+        for(int i=0; i<indentationLevel; i++)
+            System.out.print("\t"); // print a tab 'n' times, where n = level
         super.commenceNonterminal(name);
         this.indentationLevel++;
     } // end of method commenceNonterminal
 
+    /**
+     * This method will indicate that a temporary variable V was created
+     * @param v The variable to add
+     */
     @Override
     public void addVariable(Variable v) {
-        addIndentation(indentationLevel);
+        for(int i=0; i<indentationLevel; i++)
+            System.out.print("\t"); // print a tab 'n' times, where n = level
         super.addVariable(v);
     }
 
+    /**
+     * Prints the terminal token that was read
+     * @param token The terminal token
+     */
     @Override
     public void insertTerminal( Token token ) {
-        addIndentation(indentationLevel); // print tabs equal to the number of indentation
+        for(int i=0; i<indentationLevel; i++)
+            System.out.print("\t"); // print a tab 'n' times, where n = level
         super.insertTerminal(token);
     } // end of method insertTerminal
 
 
+    /**
+     * Indicates that a non-terminal method has been exited.
+     * Will print tabs, equal to the level of indentation
+     * @param name The name of the non-terminal
+     */
     @Override
     public void finishNonterminal( String name ) {
         this.indentationLevel--;
-        addIndentation(indentationLevel);
+        for(int i=0; i<indentationLevel; i++)
+            System.out.print("\t"); // print a tab 'n' times, where n = level
         super.finishNonterminal(name);
     } // end of method finishNonterminal
 
+    /**
+     * This method is called from the SA and throws a CompilationException
+     * @param token The token that caused the error
+     * @param explanatoryMessage The message that explains the problem
+     * @throws CompilationException Every time that this method is called
+     */
     @Override
     public void reportError(Token token, String explanatoryMessage) throws CompilationException {
 
@@ -46,11 +73,14 @@ public class Generate extends AbstractGenerate {
     }
 
     /**
-     * This method will print a tab if indentation level > 0. Otherwise it will do nothing!
-     * @param level the current indentation level. E.g if level is 2, then 2 tabs will be printed, etc.
+     * This method is called from the SA and throws a CompilationException
+     * @param token The token that caused the error
+     * @param explanatoryMessage The message that explains the problem
+     * @throws CompilationException Every time that this method is called
      */
-    private void addIndentation(int level){
-        for(int i=0; i<level; i++)
-            System.out.print("\t"); // print a tab 'n' times, where n = level
+    void reportError(Token token, String explanatoryMessage, CompilationException exception)
+            throws CompilationException {
+
+        throw new CompilationException(explanatoryMessage, token.lineNumber, exception);
     }
 }
