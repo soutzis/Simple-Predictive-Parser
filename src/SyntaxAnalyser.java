@@ -6,8 +6,8 @@ import java.text.MessageFormat;
  */
 public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
 
-    private final String INV_TKN_ERR = "Got invalid token: {}"; // Invalid Token Error message format
-    private final String XPCTD_OTHR_TKN = "Invalid token detected! Expected: {0}, but got {1} instead"; //Expected other
+    private final String INV_TKN_ERR = "invalid token: {}"; // Invalid Token Error message format
+    private final String XPCTD_OTHR_TKN = "invalid token: Expected: \"token {0}\", but got \"{1}\" instead!";
 
     SyntaxAnalyser(String filename) throws IOException {
 
@@ -17,11 +17,12 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
     @Override
     public void _statementPart_() throws IOException, CompilationException {
         final String nonTerminalName = "StatementPart";
-
         myGenerate.commenceNonterminal(nonTerminalName); // Indicate start of Non-terminal recursion
+
         acceptTerminal(Token.beginSymbol); // first thing to do is accept the begin symbol (terminal)
         _statementList_();
         acceptTerminal(Token.endSymbol); // last thing to do is to accept the end symbol (terminal)
+
         myGenerate.finishNonterminal(nonTerminalName); // Indicate end of Non-terminal recursion
     }
 
@@ -50,7 +51,9 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
             case Token.doSymbol: _untilStatement_();break;
             case Token.forSymbol: _forStatement_();break;
 
-            default: myGenerate.reportError(nextToken, MessageFormat.format(INV_TKN_ERR, nextToken.toString()));
+            default:
+                String offendingToken = nextToken.toString();
+                myGenerate.reportError(nextToken, offendingToken);
         }
         myGenerate.finishNonterminal(nonTerminalName);
     }
@@ -74,18 +77,13 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
         myGenerate.finishNonterminal(nonTerminalName);
     }
 
-    //TODO
     private void _ifStatement_() throws IOException, CompilationException {
         final String nonTerminalName = "IfStatement";
         myGenerate.commenceNonterminal(nonTerminalName);
         /*1. Accept "if" token*/
         acceptTerminal(Token.ifSymbol);
         /*2. Get the condition and ultimately accept the identifier OR throw an error*/
-        if(nextToken.symbol == Token.identifier)
-            _condition_();
-        else
-            myGenerate.reportError(nextToken,
-                    MessageFormat.format(XPCTD_OTHR_TKN, Token.getName(Token.identifier), nextToken.toString()));
+        _condition_();
         /*3. Accept the "then" token*/
         acceptTerminal(Token.thenSymbol);
         /*4. Call statementList*/
@@ -104,51 +102,128 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                 acceptTerminal(Token.endSymbol);
                 acceptTerminal(Token.ifSymbol);
                 break;
+            default: myGenerate.reportError(nextToken, MessageFormat.format(INV_TKN_ERR, nextToken.toString()));
         }
+        myGenerate.finishNonterminal(nonTerminalName);
+    }
+
+    /**
+     * Method for non-terminal <Procedure Statement>.
+     * Accepted grammar: call identifier ( <argument list> )
+     * @throws IOException In the case of apparently a dinosaur attack on the input stream.
+     * @throws CompilationException In the case that an invalid token is parsed during syntax analysis.
+     */
+    private void _procedureStatement_() throws IOException, CompilationException {
+        final String nonTerminalName = "ProcedureStatement";
+        myGenerate.commenceNonterminal(nonTerminalName);
+
+        acceptTerminal(Token.callSymbol);
+        acceptTerminal(Token.identifier);
+        acceptTerminal(Token.leftParenthesis);
+        _argumentList_();
+        acceptTerminal(Token.rightParenthesis);
+
+        myGenerate.finishNonterminal(nonTerminalName);
+    }
+
+    private void _whileStatement_() throws IOException, CompilationException {
+        final String nonTerminalName = "WhileStatement";
+        myGenerate.commenceNonterminal(nonTerminalName);
+
+        acceptTerminal(Token.whileSymbol);
+        _condition_();
+        acceptTerminal(Token.loopSymbol);
+        _statementList_();
+        acceptTerminal(Token.endSymbol);
+        acceptTerminal(Token.loopSymbol);
 
         myGenerate.finishNonterminal(nonTerminalName);
 
     }
 
-    //TODO
-    private void _procedureStatement_(){
+    private void _untilStatement_() throws IOException, CompilationException {
+        final String nonTerminalName = "UntilStatement";
+        myGenerate.commenceNonterminal(nonTerminalName);
 
-        final String nonTerminalName = "";
-    }
+        acceptTerminal(Token.doSymbol);
+        _statementList_();
+        acceptTerminal(Token.untilSymbol);
+        _condition_();
 
-    //TODO
-    private void _whileStatement_(){
-        final String nonTerminalName = "";
-
-    }
-
-    //TODO
-    private void _untilStatement_(){
-        final String nonTerminalName = "";
+        myGenerate.finishNonterminal(nonTerminalName);
 
     }
 
-    //TODO
-    private void _forStatement_(){
-        final String nonTerminalName = "";
+    private void _forStatement_() throws IOException, CompilationException {
+        final String nonTerminalName = "ForStatement";
+        myGenerate.commenceNonterminal(nonTerminalName);
+
+        acceptTerminal(Token.forSymbol);  // for
+        acceptTerminal(Token.leftParenthesis);  // (
+        _assignmentStatement_();  // <assignment statement>
+        acceptTerminal(Token.semicolonSymbol); // ;
+        _condition_(); // <condition>
+        acceptTerminal(Token.semicolonSymbol);  // ;
+        _assignmentStatement_();  // <assignment statement>
+        acceptTerminal(Token.rightParenthesis); // )
+        acceptTerminal(Token.doSymbol);  // do
+        _statementList_();
+        acceptTerminal(Token.endSymbol);  // end
+        acceptTerminal(Token.loopSymbol);  // loop
+
+        myGenerate.finishNonterminal(nonTerminalName);
 
     }
 
-    //TODO
-    private void _argumentList_(){
-        final String nonTerminalName = "";
+    private void _argumentList_() throws IOException, CompilationException {
+        final String nonTerminalName = "ArgumentList";
+        myGenerate.commenceNonterminal(nonTerminalName);
 
+        acceptTerminal(Token.identifier);
+        if (nextToken.symbol == Token.commaSymbol) {
+            acceptTerminal(Token.commaSymbol);
+            _argumentList_();
+        }
+
+        myGenerate.finishNonterminal(nonTerminalName);
     }
 
-    //TODO
-    private void _condition_(){
-        final String nonTerminalName = "";
+    private void _condition_() throws IOException, CompilationException {
+        final String nonTerminalName = "Condition";
+        myGenerate.commenceNonterminal(nonTerminalName);
 
+        acceptTerminal(Token.identifier);
+
+        _conditionalOperator_();
+
+        switch (nextToken.symbol){
+            case Token.identifier: acceptTerminal(Token.identifier); break;
+            case Token.numberConstant: acceptTerminal(Token.numberConstant); break;
+            case Token.stringConstant: acceptTerminal(Token.stringConstant); break;
+
+            default: myGenerate.reportError(nextToken, MessageFormat.format(INV_TKN_ERR, nextToken.toString()));
+        }
+        myGenerate.finishNonterminal(nonTerminalName);
     }
 
-    //TODO
-    private void _conditionalOperator_(){
-        final String nonTerminalName = "";
+    private void _conditionalOperator_() throws IOException, CompilationException {
+        final String nonTerminalName = "ConditionalOperator";
+        final String expectedTokens = "> or >= or = or /= or < or <=";
+        myGenerate.commenceNonterminal(nonTerminalName);
+
+        switch (nextToken.symbol){
+            case Token.lessThanSymbol: acceptTerminal(Token.lessThanSymbol); break;
+            case Token.lessEqualSymbol: acceptTerminal(Token.lessEqualSymbol); break;
+            case Token.equalSymbol: acceptTerminal(Token.equalSymbol); break;
+            case Token.notEqualSymbol: acceptTerminal(Token.notEqualSymbol); break;
+            case Token.greaterThanSymbol: acceptTerminal(Token.greaterThanSymbol); break;
+            case Token.greaterEqualSymbol: acceptTerminal(Token.greaterEqualSymbol); break;
+
+            default: myGenerate.reportError(
+                    nextToken, MessageFormat.format(XPCTD_OTHR_TKN, expectedTokens, nextToken.toString())
+            );
+        }
+        myGenerate.finishNonterminal(nonTerminalName);
 
     }
 
@@ -159,16 +234,15 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
 
         if(symbol == Token.identifier || symbol == Token.numberConstant || symbol == Token.leftParenthesis)
             _term_();
-        else if(symbol == Token.plusSymbol){
+
+        if(nextToken.symbol == Token.plusSymbol){
             acceptTerminal(Token.plusSymbol);
             _expression_();
         }
-        else if(symbol == Token.minusSymbol){
+        else if(nextToken.symbol == Token.minusSymbol){
             acceptTerminal(Token.minusSymbol);
             _expression_();
         }
-        else
-            myGenerate.reportError(nextToken, MessageFormat.format(INV_TKN_ERR, nextToken.toString()));
 
         myGenerate.finishNonterminal(nonTerminalName);
 
@@ -181,16 +255,16 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
 
         if(symbol == Token.identifier || symbol == Token.numberConstant || symbol == Token.leftParenthesis)
             _factor_();
-        else if(symbol == Token.timesSymbol){
+
+        if(nextToken.symbol == Token.timesSymbol){
             acceptTerminal(Token.timesSymbol);
             _term_();
         }
-        else if(symbol == Token.divideSymbol){
+        else if(nextToken.symbol == Token.divideSymbol){
             acceptTerminal(Token.divideSymbol);
             _term_();
         }
-        else
-            myGenerate.reportError(nextToken, MessageFormat.format(INV_TKN_ERR, nextToken.toString()));
+
         myGenerate.finishNonterminal(nonTerminalName);
     }
 
@@ -219,8 +293,9 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
             myGenerate.insertTerminal(nextToken); //print terminal name to output
             nextToken = lex.getNextToken();  //get next token from lexical analyser
         }
-        else
+        else {
             myGenerate.reportError(nextToken,
                     MessageFormat.format(XPCTD_OTHR_TKN, Token.getName(symbol), nextToken.toString()));
+        }
     }
 }

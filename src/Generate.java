@@ -15,7 +15,7 @@ public class Generate extends AbstractGenerate {
     @Override
     public void commenceNonterminal( String name ) {
         addIndentation(indentationLevel);
-        System.out.println( "rggBEGIN " + name );
+        super.commenceNonterminal(name);
         this.indentationLevel++;
     } // end of method commenceNonterminal
 
@@ -27,17 +27,8 @@ public class Generate extends AbstractGenerate {
 
     @Override
     public void insertTerminal( Token token ) {
-        String tt = Token.getName( token.symbol );
-
-        if( (token.symbol == Token.identifier)
-                || (token.symbol == Token.numberConstant)
-                || (token.symbol == Token.stringConstant))
-            tt += " '" + token.text + "'";
-
-        tt += " on line " + token.lineNumber;
-
         addIndentation(indentationLevel); // print tabs equal to the number of indentation
-        System.out.println( "rggTOKEN " + tt );
+        super.insertTerminal(token);
     } // end of method insertTerminal
 
 
@@ -45,7 +36,7 @@ public class Generate extends AbstractGenerate {
     public void finishNonterminal( String name ) {
         this.indentationLevel--;
         addIndentation(indentationLevel);
-        System.out.println( "rggEND " + name );
+        super.finishNonterminal(name);
     } // end of method finishNonterminal
 
     @Override
