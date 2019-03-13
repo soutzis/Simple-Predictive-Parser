@@ -59,6 +59,7 @@ public abstract class AbstractGenerate
      * @param v The variable to remove
      */
     public void removeVariable( Variable v ) {
+
         System.out.println( "rggDROP " + v );
     }
 

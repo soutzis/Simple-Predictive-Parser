@@ -17,11 +17,19 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
     private final String VAR_NAME_EXISTS = "variable name already exists. Identifier \"{0}\"";
     private final String VAR_NAME_NOT_EXISTS = "could not find \"{0}\". This variable has not been initialised yet.";
     private final String INV_OPERATION =  "invalid operation. It is not possible to perform operation";
+    private final int NO_EXPRESSION = 0;
+    private final int FIRST_EXPRESSION = 1;
+    private final int SECOND_EXPRESSION = 2;
+    private final int NESTED_EXPRESSION = 3;
 
     private HashMap<String, Variable> globalVariables;
     private HashMap<String, Variable> tempVariables;
+
     private boolean forStatementBody;
     private int forStatementCount;
+
+    private int expressionType;
+    private Variable.Type varType1, varType2;
 
     /**
      * Constructor of Syntax Analyser
@@ -37,6 +45,7 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
         this.tempVariables = new HashMap<>();
         this.forStatementBody = false;
         this.forStatementCount = 0;
+        this.expressionType = NO_EXPRESSION;
     }
 
     /**
@@ -161,14 +170,17 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                 //for non-terminal <expression>
                 case Token.identifier:
                     _expression_();
+                    expressionType = NO_EXPRESSION; //when expression returns, reset variable
                     break;
                 case Token.numberConstant:
                     v = new Variable(variableIdentifier, Variable.Type.NUMBER);
                     _expression_();
+                    expressionType = NO_EXPRESSION; //when expression returns, reset variable
                     createVariableIfNotExists(variableIdentifier, v);
                     break;
                 case Token.leftParenthesis:
                     _expression_();
+                    expressionType = NO_EXPRESSION; //when expression returns, reset variable
                     break;
                 // Otherwise, if symbol is a string constant, then accept it as a terminal
                 case Token.stringConstant:
@@ -442,14 +454,28 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
     }
 
     /**
-     * Method for non-terminal "expression"
+     * Method for non-terminal "expression". This method will not allow a String and a Number in same operation.
+     * I.e. You can not do: myVariable := "Hello world" + 128;
      * @throws IOException If an i/o exception occurs.
      * @throws CompilationException If an invalid token is parsed
      */
     private void _expression_() throws IOException, CompilationException {
         final String nonTerminalName = "Expression";
         myGenerate.commenceNonterminal(nonTerminalName);
-        Variable.Type type1, type2; //goal is to compare types, but might need to store them globally
+
+        //Check which part of the sequence this is. If expressionType is No expression, then this is the first.
+        //If expressionType is first expression, then this is the second expression. And so on and so forth
+        switch (expressionType){
+            case NO_EXPRESSION:
+                expressionType = FIRST_EXPRESSION;
+                break;
+            case FIRST_EXPRESSION:
+                expressionType = SECOND_EXPRESSION;
+                break;
+            case SECOND_EXPRESSION:
+                expressionType = NESTED_EXPRESSION;
+                break;
+        }
 
         try {
             // if symbol is either identifier, number constant or a left parenthesis, then call <term>'s method
@@ -457,25 +483,65 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                 case Token.identifier:
                     String temp = nextToken.text;  //Store this. If _term_() returns, then variable exists. Get it.
                     _term_();
-                    type1 = getVariable(temp).type;
+                    // If this is the first expression, assign only varType1
+                    if(expressionType == FIRST_EXPRESSION)
+                        varType1 = getVariable(temp).type;
+                    //If this is the second expression, assign only varType2
+                    else if(expressionType == SECOND_EXPRESSION)
+                        varType2 = getVariable(temp).type;
+                    // If this is a nested expression, deeper than 2 expressions,
+                    //then assign the value of varType2 to varType1 and assign current type to varType2
+                    else {
+                        varType1 = varType2;
+                        varType2 = getVariable(temp).type;
+                    }
                     break;
                 case Token.numberConstant:
                     _term_();
-                    type1 = Variable.Type.NUMBER;
+                    if(expressionType == FIRST_EXPRESSION)
+                        varType1 = Variable.Type.NUMBER;
+                    else if(expressionType == SECOND_EXPRESSION)
+                        varType2 = Variable.Type.NUMBER;
+                    else {
+                        varType1 = varType2;
+                        varType2 = Variable.Type.NUMBER;
+                    }
                     break;
                 case Token.leftParenthesis:
                     _term_();
                     break;
             }
+            //Variable to store temporary token, in order to pass as an error parameter
+            Token tempToken;
             // When returning from _term_(), check if symbol is '+' or '-'. If yes, then call current method recursively
             switch (nextToken.symbol) {
                 case Token.plusSymbol:
                     acceptTerminal(Token.plusSymbol);
+                    tempToken = nextToken;
                     _expression_();
+                    //Make sure this is not the first expression, otherwise varType2 will be un-initialised
+                    if(expressionType != FIRST_EXPRESSION){
+                        //Disallow different types
+                        if(varType1 != varType2){
+                            myGenerate.reportError(tempToken, INV_OPERATION);
+                        }
+                    }
                     break;
                 case Token.minusSymbol:
                     acceptTerminal(Token.minusSymbol);
+                    tempToken = nextToken;
                     _expression_();
+                    //make sure this is not the first expression
+                    if(expressionType != FIRST_EXPRESSION) {
+                        //disallow different types
+                        if (varType1 != varType2) {
+                            myGenerate.reportError(tempToken, INV_OPERATION);
+                        }
+                        //disallow subtraction of strings
+                        if (varType1 == Variable.Type.STRING || varType2 == Variable.Type.STRING) {
+                            myGenerate.reportError(tempToken, INV_OPERATION);
+                        }
+                    }
                     break;
             }
         }
@@ -497,14 +563,25 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
         final String nonTerminalName = "Term";
         myGenerate.commenceNonterminal(nonTerminalName);
 
+        // Store this as temp token, so that it can be passed to reportError
+        Token tempToken = null;
+        //Variable to store temporary token, in order to pass as an error parameter
+        Variable.Type type = Variable.Type.UNKNOWN;
+
         try {
             // if symbol is either identifier, number constant or a left parenthesis, then call <factor>'s method
+            // method _factor_() returns and does not throw an error, then store Type, for check afterwards.
             switch (nextToken.symbol) {
                 case Token.identifier:
+                    String temp = nextToken.text;  //Store this. If _term_() returns, then variable exists. Get it.
+                    tempToken = nextToken;
                     _factor_();
+                    type = getVariable(temp).type;
                     break;
                 case Token.numberConstant:
+                    tempToken = nextToken;
                     _factor_();
+                    type = Variable.Type.NUMBER;
                     break;
                 case Token.leftParenthesis:
                     _factor_();
@@ -512,12 +589,21 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
             }
 
             // When returning from _factor_(), check if symbol is '*' or '/'. If yes, then call current method recursively
+            // If the type of the variable before * or / is String, then disallow
             switch (nextToken.symbol) {
                 case Token.timesSymbol:
+                    //disallow multiplication of strings
+                    if (type == Variable.Type.STRING) {
+                        myGenerate.reportError(tempToken, INV_OPERATION);
+                    }
                     acceptTerminal(Token.timesSymbol);
                     _term_();
                     break;
                 case Token.divideSymbol:
+                    //disallow string division
+                    if (type == Variable.Type.STRING) {
+                        myGenerate.reportError(tempToken, INV_OPERATION);
+                    }
                     acceptTerminal(Token.divideSymbol);
                     _term_();
                     break;
