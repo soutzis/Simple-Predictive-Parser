@@ -11,24 +11,34 @@ import java.util.Map;
 public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
 
     /*Error messages that the SA will use*/
-    private final String INV_TKN_ERR = "invalid token: \"{0}\"";
-    private final String XPCTD_OTHR_TKN = "invalid token. Expected: token \"{0}\", but got \"{1}\" instead!";
-    private final String TRACE_METHOD = "an error caught in method \"{0}\" of the Syntax Analyser. Error is";
-    private final String VAR_NAME_EXISTS = "variable name already exists. Identifier \"{0}\"";
-    private final String VAR_NAME_NOT_EXISTS = "could not find \"{0}\". This variable has not been initialised yet.";
-    private final String INV_OPERATION =  "invalid operation. It is not possible to perform operation";
+    private final String INV_TKN_ERR = ": invalid token: \"{0}\"";
+    private final String XPCTD_OTHR_TKN = ": invalid token. Expected: token \"{0}\", but got \"{1}\" instead!";
+    private final String TRACE_METHOD = ": an error in method \"{0}\" of the Syntax Analyser. Error is";
+    private final String VAR_NAME_NOT_EXISTS = ": could not find \"{0}\". This variable has not been initialised yet.";
+    private final String INV_OPERATION =  ": invalid operation. It is not possible to perform operation";
+
+    /*These are used to indicate the recursion depth of an expression <_expression_()>
+    * I.e. NO_EXPRESSION means that the first expression has not been identified by the syntax analyser and
+    * NESTED_EXPRESSION will mean that the syntax analyser has already seen both first and second expressions*/
     private final int NO_EXPRESSION = 0;
     private final int FIRST_EXPRESSION = 1;
     private final int SECOND_EXPRESSION = 2;
     private final int NESTED_EXPRESSION = 3;
 
+    /*Containers of global and local variables respectively*/
     private HashMap<String, Variable> globalVariables;
-    private HashMap<String, Variable> tempVariables;
+    private HashMap<Integer, HashMap<String, Variable>> localVariables;
 
+    /*Flags
+    * 1) If the SA is currently in the body of a for loop
+    * 2) The current scope. (The depth of nesting of for-loop)*/
     private boolean forStatementBody;
     private int forStatementCount;
 
-    private int expressionType;
+    /*Flags
+    * 1) expressionsSeen marks the number of consecutive (recursive) expressions that the SA parses
+    * 2) varType1 and varType2 are the variable types given in an expressions. Used in semantic evaluation*/
+    private int expressionsSeen;
     private Variable.Type varType1, varType2;
 
     /**
@@ -42,10 +52,10 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
         // Instantiates the Lexical Analyser, so it can be accessed during execution of the parse method
         this.lex = new LexicalAnalyser(filename);
         this.globalVariables = new HashMap<>();
-        this.tempVariables = new HashMap<>();
+        this.localVariables = new HashMap<>();
         this.forStatementBody = false;
         this.forStatementCount = 0;
-        this.expressionType = NO_EXPRESSION;
+        this.expressionsSeen = NO_EXPRESSION;
     }
 
     /**
@@ -130,14 +140,23 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                         this.forStatementBody = true; // set flag that indicates we are in a for loop
                     // increment counter by 1, so the analyser can determine whether the outer for loop has finished
                     this.forStatementCount ++;
-                    _forStatement_();// Enter non-terminal
-                    this.forStatementCount --; // decrement by 1, to indicate that for-loop has exited
-                    if(this.forStatementCount == 0) { // 0 means no more for loops, so destroy variables
-                        this.forStatementBody = false; //unset the flag for a for-loop
-                        for (Map.Entry e : tempVariables.entrySet()) {
-                            myGenerate.removeVariable((Variable) e.getValue()); //declare the destruction of variable(s)
-                        }
+
+                    /*ENTER FOR STATEMENT*/
+                    _forStatement_();
+                    /*EXIT FOR STATEMENT and delete all variables of this for-loop's scope*/
+
+                    //Print the destroyed variables
+                    HashMap<String, Variable> scope = localVariables.get(forStatementCount);
+                    for(Variable v : scope.values()){
+                        myGenerate.removeVariable(v);
                     }
+
+                    localVariables.remove(forStatementCount);//Remove the scope (which contains the destroyed variables)
+                    this.forStatementCount --; // decrement by 1, to indicate that for-loop has exited
+
+                    if(this.forStatementCount == 0)  // check if this is the most outer loop
+                        this.forStatementBody = false; // set flag that indicates we are in a for loop
+
                     break;
                 // if none of the above cases, throw an error for invalid token
                 default:
@@ -170,23 +189,26 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                 //for non-terminal <expression>
                 case Token.identifier:
                     _expression_();
-                    expressionType = NO_EXPRESSION; //when expression returns, reset variable
+                    expressionsSeen = NO_EXPRESSION; //when expression returns, reset variable
+                    // if no error is thrown after expression has finished, then varType1 is the type of this variable
+                    v = new Variable(variableIdentifier, varType1);
+                    createVariable(variableIdentifier, v);
                     break;
                 case Token.numberConstant:
                     v = new Variable(variableIdentifier, Variable.Type.NUMBER);
                     _expression_();
-                    expressionType = NO_EXPRESSION; //when expression returns, reset variable
-                    createVariableIfNotExists(variableIdentifier, v);
+                    expressionsSeen = NO_EXPRESSION; //when expression returns, reset variable
+                    createVariable(variableIdentifier, v);
                     break;
                 case Token.leftParenthesis:
                     _expression_();
-                    expressionType = NO_EXPRESSION; //when expression returns, reset variable
+                    expressionsSeen = NO_EXPRESSION; //when expression returns, reset variable
                     break;
                 // Otherwise, if symbol is a string constant, then accept it as a terminal
                 case Token.stringConstant:
                     v = new Variable(variableIdentifier, Variable.Type.STRING);
                     acceptTerminal(Token.stringConstant);
-                    createVariableIfNotExists(variableIdentifier, v);
+                    createVariable(variableIdentifier, v);
                     break;
 
                 // If everything else fails, then throw an exception, which will be caught later
@@ -463,17 +485,17 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
         final String nonTerminalName = "Expression";
         myGenerate.commenceNonterminal(nonTerminalName);
 
-        //Check which part of the sequence this is. If expressionType is No expression, then this is the first.
-        //If expressionType is first expression, then this is the second expression. And so on and so forth
-        switch (expressionType){
+        //Check which part of the sequence this is. If expressionsSeen is No expression, then this is the first.
+        //If expressionsSeen is first expression, then this is the second expression. And so on and so forth
+        switch (expressionsSeen){
             case NO_EXPRESSION:
-                expressionType = FIRST_EXPRESSION;
+                expressionsSeen = FIRST_EXPRESSION;
                 break;
             case FIRST_EXPRESSION:
-                expressionType = SECOND_EXPRESSION;
+                expressionsSeen = SECOND_EXPRESSION;
                 break;
             case SECOND_EXPRESSION:
-                expressionType = NESTED_EXPRESSION;
+                expressionsSeen = NESTED_EXPRESSION;
                 break;
         }
 
@@ -484,10 +506,10 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                     String temp = nextToken.text;  //Store this. If _term_() returns, then variable exists. Get it.
                     _term_();
                     // If this is the first expression, assign only varType1
-                    if(expressionType == FIRST_EXPRESSION)
+                    if(expressionsSeen == FIRST_EXPRESSION)
                         varType1 = getVariable(temp).type;
                     //If this is the second expression, assign only varType2
-                    else if(expressionType == SECOND_EXPRESSION)
+                    else if(expressionsSeen == SECOND_EXPRESSION)
                         varType2 = getVariable(temp).type;
                     // If this is a nested expression, deeper than 2 expressions,
                     //then assign the value of varType2 to varType1 and assign current type to varType2
@@ -498,13 +520,23 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                     break;
                 case Token.numberConstant:
                     _term_();
-                    if(expressionType == FIRST_EXPRESSION)
+                    if(expressionsSeen == FIRST_EXPRESSION)
                         varType1 = Variable.Type.NUMBER;
-                    else if(expressionType == SECOND_EXPRESSION)
+                    else if(expressionsSeen == SECOND_EXPRESSION)
                         varType2 = Variable.Type.NUMBER;
                     else {
                         varType1 = varType2;
                         varType2 = Variable.Type.NUMBER;
+                    }
+                    break;
+                case Token.stringConstant:
+                    if(expressionsSeen == FIRST_EXPRESSION)
+                        varType1 = Variable.Type.STRING;
+                    else if(expressionsSeen == SECOND_EXPRESSION)
+                        varType2 = Variable.Type.STRING;
+                    else {
+                        varType1 = varType2;
+                        varType2 = Variable.Type.STRING;
                     }
                     break;
                 case Token.leftParenthesis:
@@ -520,7 +552,7 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                     tempToken = nextToken;
                     _expression_();
                     //Make sure this is not the first expression, otherwise varType2 will be un-initialised
-                    if(expressionType != FIRST_EXPRESSION){
+                    if(expressionsSeen != FIRST_EXPRESSION){
                         //Disallow different types
                         if(varType1 != varType2){
                             myGenerate.reportError(tempToken, INV_OPERATION);
@@ -532,7 +564,7 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                     tempToken = nextToken;
                     _expression_();
                     //make sure this is not the first expression
-                    if(expressionType != FIRST_EXPRESSION) {
+                    if(expressionsSeen != FIRST_EXPRESSION) {
                         //disallow different types
                         if (varType1 != varType2) {
                             myGenerate.reportError(tempToken, INV_OPERATION);
@@ -596,16 +628,42 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
                     if (type == Variable.Type.STRING) {
                         myGenerate.reportError(tempToken, INV_OPERATION);
                     }
+                    // accept '*'
                     acceptTerminal(Token.timesSymbol);
+
+                    //get type of token that is after the '*' symbol
+                    String temp_identifier1 = nextToken.text;
+                    if (nextToken.symbol == Token.identifier)
+                        type = getVariable(temp_identifier1).type;
+                    else if (nextToken.symbol == Token.stringConstant)
+                        type = Variable.Type.STRING;
+
                     _term_();
+
+                    // check type
+                    if (type == Variable.Type.STRING) {
+                        myGenerate.reportError(tempToken, INV_OPERATION);
+                    }
                     break;
                 case Token.divideSymbol:
                     //disallow string division
                     if (type == Variable.Type.STRING) {
                         myGenerate.reportError(tempToken, INV_OPERATION);
                     }
+                    //accept '/'
                     acceptTerminal(Token.divideSymbol);
+
+                    String temp_identifier2 = nextToken.text;
+                    if (nextToken.symbol == Token.identifier)
+                        type = getVariable(temp_identifier2).type;
+                    else if (nextToken.symbol == Token.stringConstant)
+                        type = Variable.Type.STRING;
+
                     _term_();
+
+                    if (type == Variable.Type.STRING) {
+                        myGenerate.reportError(tempToken, INV_OPERATION);
+                    }
                     break;
             }
         }
@@ -677,38 +735,88 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
 
     /**
      * This method will check the collections of temp variables and global variables. If an identifier does
-     * not exist, then create the variable, insert it in the appropriate collection and print that the
+     * not exist, then create the variable, insert it in the appropriate collection and print that the.
      * variable has been created ("rggDECL {variable}")
      * @param identifier The variable identifier
      * @param v The variable
      */
-    private void createVariableIfNotExists(String identifier, Variable v) throws CompilationException {
-        if(!variableExists(identifier)){
-            myGenerate.addVariable(v);  //declare the creation of thi variable
-            if(forStatementBody)
-                tempVariables.put(identifier, v);
-            else
-                globalVariables.put(identifier, v);
+    private void createVariable(String identifier, Variable v) {
+        /*THE COMMENTED CODE-SNIPPET CREATES A NEW VARIABLE, ONLY IF THE VARIABLE IS NOT ALREADY INSTANTIATED*/
+
+//        if(!variableExists(identifier)){
+//            myGenerate.addVariable(v);  //declare the creation of this variable
+//            //check if we are in a for-loop
+//            if(forStatementBody) {
+//                //check if the scope already exists. If not exists, a new HashMap will be added
+//                if(localVariables.containsKey(forStatementCount))
+//                    localVariables.get(forStatementCount).put(identifier, v); //put variable in scope
+//                else {
+//                    HashMap<String, Variable> scope = new HashMap<>(); //create new hashmap to hold the scope
+//                    scope.put(identifier, v); //put local variable of this scope
+//                    localVariables.put(forStatementCount, scope); //put scope identifier + scope variables
+//                }
+//            }
+//            else
+//                globalVariables.put(identifier, v);
+//        }
+
+        /*THIS SNIPPET WILL CREATE A NEW VARIABLE WHEN THERE IS AN ASSIGNMENT*/
+        myGenerate.addVariable(v);  //declare the creation of this variable
+        //check if we are in a for-loop
+        if(forStatementBody) {
+            //check if the scope already exists. If not exists, a new HashMap will be added
+            if(localVariables.containsKey(forStatementCount))
+                localVariables.get(forStatementCount).put(identifier, v); //put/replace variable in scope
+            else {
+                HashMap<String, Variable> scope = new HashMap<>(); //create new hashmap to hold the scope
+                scope.put(identifier, v); //put local variable of this scope
+                localVariables.put(forStatementCount, scope); //put scope identifier + scope variables
+            }
         }
-        //if this identifier already exists, then throw an error
+
+        //otherwise, put in global-variables container
         else
-            myGenerate.reportError(nextToken, MessageFormat.format(VAR_NAME_EXISTS, identifier));
+            globalVariables.put(identifier, v);
     }
 
+    /**
+     * Will return true if variable with specific identifier exists (is assigned).
+     * @param identifier The identifier of the variable
+     * @return true if variable exists
+     */
     private boolean variableExists(String identifier){
 
-        return (globalVariables.containsKey(identifier) || tempVariables.containsKey(identifier));
+        //first check temporary variables
+        for(HashMap<String, Variable> scope : localVariables.values()){
+            for(Map.Entry<String, Variable> entry : scope.entrySet()) {
+                if(identifier.equals(entry.getKey()))
+                    return true;
+            }
+        }
+
+        return globalVariables.containsKey(identifier);
     }
 
     /**
      * @param identifier The name of the variable to retrieve (aka the variable's identifier)
-     * @return The variable object that has the name specified in "identifier"
+     * @return The variable object that has the name specified in "identifier". Returns null otherwise
      * @throws NullPointerException If the identifier is the name of a variable that does not exist
      */
     private Variable getVariable(String identifier) throws NullPointerException{
+
+        Variable var = null;
+
         if(globalVariables.containsKey(identifier))
-            return globalVariables.get(identifier);
-        else
-            return tempVariables.get(identifier);
+            var = globalVariables.get(identifier);
+        else{
+            for(HashMap<String, Variable> scope : localVariables.values()){
+                for(Variable v : scope.values()) {
+                    if(identifier.equals(v.identifier))
+                        var = v;
+                }
+            }
+        }
+
+        return var;
     }
 }
