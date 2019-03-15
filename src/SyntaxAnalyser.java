@@ -16,6 +16,7 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
     private final String TRACE_METHOD = ": an error in method \"{0}\" of the Syntax Analyser. Error is";
     private final String VAR_NAME_NOT_EXISTS = ": could not find \"{0}\". This variable has not been initialised yet.";
     private final String INV_OPERATION =  ": invalid operation. It is not possible to perform operation";
+    private final String INV_TYPE = "invalid type assignment. Expected: \"{0}\", but got \"{1}\" instead!";
 
     /*These are used to indicate the recursion depth of an expression <_expression_()>
     * I.e. NO_EXPRESSION means that the first expression has not been identified by the syntax analyser and
@@ -740,43 +741,48 @@ public class SyntaxAnalyser extends AbstractSyntaxAnalyser {
      * @param identifier The variable identifier
      * @param v The variable
      */
-    private void createVariable(String identifier, Variable v) {
-        /*THE COMMENTED CODE-SNIPPET CREATES A NEW VARIABLE, ONLY IF THE VARIABLE IS NOT ALREADY INSTANTIATED*/
+    private void createVariable(String identifier, Variable v) throws CompilationException {
 
-//        if(!variableExists(identifier)){
-//            myGenerate.addVariable(v);  //declare the creation of this variable
-//            //check if we are in a for-loop
-//            if(forStatementBody) {
-//                //check if the scope already exists. If not exists, a new HashMap will be added
-//                if(localVariables.containsKey(forStatementCount))
-//                    localVariables.get(forStatementCount).put(identifier, v); //put variable in scope
-//                else {
-//                    HashMap<String, Variable> scope = new HashMap<>(); //create new hashmap to hold the scope
-//                    scope.put(identifier, v); //put local variable of this scope
-//                    localVariables.put(forStatementCount, scope); //put scope identifier + scope variables
-//                }
-//            }
-//            else
-//                globalVariables.put(identifier, v);
-//        }
-
-        /*THIS SNIPPET WILL CREATE A NEW VARIABLE WHEN THERE IS AN ASSIGNMENT*/
-        myGenerate.addVariable(v);  //declare the creation of this variable
-        //check if we are in a for-loop
-        if(forStatementBody) {
-            //check if the scope already exists. If not exists, a new HashMap will be added
-            if(localVariables.containsKey(forStatementCount))
-                localVariables.get(forStatementCount).put(identifier, v); //put/replace variable in scope
-            else {
-                HashMap<String, Variable> scope = new HashMap<>(); //create new hashmap to hold the scope
-                scope.put(identifier, v); //put local variable of this scope
-                localVariables.put(forStatementCount, scope); //put scope identifier + scope variables
+        /*THIS CODE-SNIPPET CREATES A NEW VARIABLE, ONLY IF THE VARIABLE IS NOT ALREADY INSTANTIATED*/
+        if(!variableExists(identifier)){
+            myGenerate.addVariable(v);  //declare the creation of this variable
+            //check if we are in a for-loop
+            if(forStatementBody) {
+                //check if the scope already exists. If not exists, a new HashMap will be added
+                if(localVariables.containsKey(forStatementCount))
+                    localVariables.get(forStatementCount).put(identifier, v); //put variable in scope
+                else {
+                    HashMap<String, Variable> scope = new HashMap<>(); //create new hashmap to hold the scope
+                    scope.put(identifier, v); //put local variable of this scope
+                    localVariables.put(forStatementCount, scope); //put scope identifier + scope variables
+                }
             }
+            else
+                globalVariables.put(identifier, v);
+        }
+        else{
+            Variable.Type expectedType = getVariable(identifier).type;
+            if (expectedType != v.type)
+                myGenerate.reportError(nextToken, MessageFormat.format(INV_TYPE, expectedType.name, v.type.name));
         }
 
-        //otherwise, put in global-variables container
-        else
-            globalVariables.put(identifier, v);
+        /*THIS SNIPPET WILL CREATE A NEW VARIABLE WHEN THERE IS AN ASSIGNMENT*/
+//        myGenerate.addVariable(v);  //declare the creation of this variable
+//        //check if we are in a for-loop
+//        if(forStatementBody) {
+//            //check if the scope already exists. If not exists, a new HashMap will be added
+//            if(localVariables.containsKey(forStatementCount))
+//                localVariables.get(forStatementCount).put(identifier, v); //put/replace variable in scope
+//            else {
+//                HashMap<String, Variable> scope = new HashMap<>(); //create new hashmap to hold the scope
+//                scope.put(identifier, v); //put local variable of this scope
+//                localVariables.put(forStatementCount, scope); //put scope identifier + scope variables
+//            }
+//        }
+//
+//        //otherwise, put in global-variables container
+//        else
+//            globalVariables.put(identifier, v);
     }
 
     /**
